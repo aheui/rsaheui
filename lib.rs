@@ -16,6 +16,7 @@ macro_rules! printerr(
 pub enum Instruction {
     Hangeul(hangeul::Syllable),
     Character(char),
+    Wall(InterpreterDirection),
 }
 
 impl Instruction {
@@ -70,15 +71,25 @@ impl Source {
         }
     }
 
-    pub fn get(&self, row: uint, col: uint) -> Instruction {
-        let pos = col + (if row == 0 {
-            0
-        } else {
-            *self.tails.as_slice().get(row - 1).unwrap()
-        });
-        //pringln!("pos: {} / col: {} // row: {} / len: {}", pos, col, row, self.instructions.len());
-        assert!(col < self.tails.as_slice()[row]);
-        *self.instructions.as_slice().get(pos).unwrap()
+    pub fn get(&self, row: int, col: int) -> Instruction {
+        match (row, col) {
+            (row, _) if row < 0 => Wall(Up),
+            (_, col) if col < 0 => Wall(Left),
+            (row, _) if row >= self.tails.len() as int => Wall(Down),
+            _ => {
+                let pos: uint = col as uint + (if row == 0 {
+                    0
+                } else {
+                    *self.tails.as_slice().get(row as uint - 1).unwrap()
+                });
+                //pringln!("pos: {} / col: {} // row: {} / len: {}", pos, col, row, self.instructions.len());
+                if col as uint >= self.tails.as_slice()[row as uint] {
+                    Wall(Right)
+                } else {
+                    *self.instructions.as_slice().get(pos).unwrap()
+                }
+            }
+        }
     }
 }
 
@@ -91,11 +102,11 @@ pub fn test_source() {
     assert_eq!(s.get(1, 2).hangeul().char(), '희');
 }
 
-enum InterpreterDirection {
-    Right,
-    Left,
+pub enum InterpreterDirection {
     Down,
     Up,
+    Right,
+    Left,
 }
 
 pub trait Storage {
@@ -255,7 +266,7 @@ pub struct Interpreter {
     source: Source,
     storages: Vec<TempStorage>, // must be array - fixed size
     storage_index: uint,
-    counter: (uint, uint),
+    counter: (int, int),
     direction: InterpreterDirection,
 }
 
@@ -268,7 +279,7 @@ impl Interpreter {
             storages: Vec::new(),
             storage_index: 0,
             counter: (0, 0),
-            direction: Right,
+            direction: Down,
         };
         for x in range(0, hangeul::final0_count) {
             let storage = match x {
@@ -287,7 +298,7 @@ impl Interpreter {
         return obj;
     }
 
-    pub fn counter(&self) -> (uint, uint) {
+    pub fn counter(&self) -> (int, int) {
         self.counter
     }
 
@@ -411,6 +422,7 @@ impl Interpreter {
                     hangeul::U => { direction = Down; }
                     hangeul::Yu => { direction = Down; move = 2; }
                     hangeul::Eu => {
+                        //println!("direction: {:?}", self.direction);
                         direction = match self.direction {
                             Right | Left => self.direction,
                             Up => Down,
@@ -445,6 +457,38 @@ impl Interpreter {
                     }
                 }
             }
+            Wall(direction) => match (self.direction, direction) {
+                (Up, Up) => {
+                    move = 0;
+                    self.counter = match self.counter {
+                        (_, col) => (self.source.tails.len() as int, col),
+                    }
+                }
+                (Down, Down) => {
+                    move = 0;
+                    self.counter = match self.counter {
+                        (_, col) => (0, col),
+                    }
+                }
+                (Right, Right) => {
+                    move = 0;
+                    self.counter = match self.counter {
+                        (row, _) => (row, 0),
+                    }
+                }
+                (Left, Left) => {
+                    move = 0;
+                    self.counter = match self.counter {
+                        (row, _) => {
+                            let tails = &self.source.tails;
+                            let col = *tails.get(row as uint) -
+                                if row == 0 { 0 } else { *tails.get(row as uint - 1) };
+                            (row, col as int)
+                        }
+                    }
+                }
+                _ => { }
+            },
             _ => { }
         };
         let counter_diff = match direction {
@@ -455,21 +499,17 @@ impl Interpreter {
         };
         self.counter = match self.counter {
             (row, col) => match counter_diff {
-                (row_diff, col_diff) => (row + row_diff as uint, col + col_diff as uint)
+                (row_diff, col_diff) => (row + row_diff, col + col_diff)
             }
         };
+        self.direction = direction;
         false
     }
 
     pub fn step(&mut self) -> bool {
-        let row: uint; let col: uint;
-        match self.counter {
-            (r, c) => {
-                row = r;
-                col = c;
-            }
-        }
-        let syllable = self.source.get(row, col);
+        let syllable = match self.counter {
+            (row, col) => self.source.get(row, col)
+        };
         self.instruct(&syllable)
     }
 

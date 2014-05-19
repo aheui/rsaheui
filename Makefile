@@ -16,8 +16,11 @@ test: aheui
 	$(RUSTC) $(RFLAGS) --test test.rs
 	./test
 	rm aheui
+
 	$(RUSTC) $(RFLAGS) aheui.rs
-	./aheui hello.ah
+	./aheui snippets/hello-world/hello-world.puzzlet.aheui
+	./aheui snippets/hello-world/hello.puzzlet.aheui
+	./aheui snippets/99dan/99dan.aheui
 
 run: compile
 	./aheui
