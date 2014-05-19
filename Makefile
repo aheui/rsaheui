@@ -1,16 +1,20 @@
 
 RUSTC=rustc
-RFLAGS='-L./hangeul'
+RLIBFLAGS='-L./hangeul'
+RFLAGS='-L.'
 
-all: compile
+all: lib aheui
 	
 
-compile: module
+lib: module
+	$(RUSTC) $(RLIBFLAGS) lib.rs
+
+aheui: lib
 	$(RUSTC) $(RFLAGS) aheui.rs
 
-test:
-	$(RUSTC) $(RFLAGS) --test aheui.rs
-	./aheui
+test: aheui
+	$(RUSTC) $(RFLAGS) --test test.rs
+	./test
 	rm aheui
 	$(RUSTC) $(RFLAGS) aheui.rs
 	./aheui hello.ah
@@ -19,10 +23,11 @@ run: compile
 	./aheui
 
 clean: clean-module
-	rm aheui
+	rm aheui test *.rlib
 
 module:
 	cd hangeul && make
+	cp hangeul/*.rlib .
 
 clean-module:
 	cd hangeul && make clean
