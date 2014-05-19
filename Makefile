@@ -20,10 +20,12 @@ test: aheui
 	$(RUSTC) $(RFLAGS) aheui.rs
 	./aheui snippets/hello-world/hello-world.puzzlet.aheui
 	./aheui snippets/hello-world/hello.puzzlet.aheui
-	./aheui snippets/99dan/99dan.aheui
 
-run: compile
-	./aheui
+install: aheui
+	cp ./aheui /usr/local/bin/rsaheui
+
+dist-clean:
+	rm /usr/local/bin/rsaheui
 
 clean: clean-module
 	rm aheui test *.rlib
