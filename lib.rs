@@ -14,20 +14,20 @@ macro_rules! printerr(
 )
 
 pub enum Instruction {
-    Hangeul(hangeul::Syllable),
+    Hangeul(hangeul::ConcreteSyllable),
     Character(char),
     Wall(InterpreterDirection),
 }
 
 impl Instruction {
     pub fn from_char(c: char) -> Instruction {
-        match hangeul::Syllable::from_char(c) {
+        match hangeul::ConcreteSyllable::from_char(c) {
             Some(syllable) => Hangeul(syllable),
             None => Character(c),
         }
     }
 
-    pub fn hangeul(&self) -> hangeul::Syllable {
+    pub fn hangeul(&self) -> hangeul::ConcreteSyllable {
         match *self {
             Hangeul(syllable) => syllable,
             _ => { assert!(false); fail!("") }
@@ -43,7 +43,7 @@ pub struct Source {
 impl Source {
     pub fn new(s: &str) -> Source {
         let vec = s.as_slice().chars().map(
-            |c| match hangeul::Syllable::from_char(c) {
+            |c| match hangeul::ConcreteSyllable::from_char(c) {
                 Some(syllable) => Hangeul(syllable),
                 None => Character(c),
             }
@@ -268,6 +268,7 @@ pub struct Interpreter {
     storage_index: uint,
     counter: (int, int),
     direction: InterpreterDirection,
+    out: std::io::LineBufferedWriter<std::io::stdio::StdWriter>,
 }
 
 pub static final_draw_counts: [uint, ..28] = [0, 2, 4, 4, 2, 5, 5, 3, 5, 7, 9, 9, 7, 9, 9, 8, 4, 4, 6, 2, 4, 0, 3, 4, 3, 4, 4, 0];
@@ -280,6 +281,7 @@ impl Interpreter {
             storage_index: 0,
             counter: (0, 0),
             direction: Down,
+            out: std::io::stdio::stdout(),
         };
         for x in range(0, hangeul::final0_count) {
             let storage = match x {
@@ -312,7 +314,7 @@ impl Interpreter {
         let mut move: int = 1;
         match *instruction {
             Hangeul(syllable) => {
-                //pringln!("instruction: {:?} {:?} {:?}", syllable.initial(), syllable.peak(), syllable.final());
+                //pringln!("instruction: {:?} {:?} {:?}", syllable.initial(), syllable.peak(), syllable.final0());
                 let initial = syllable.initial();
                 let _ = match initial {
                     hangeul::InitialIeung => {
@@ -335,16 +337,15 @@ impl Interpreter {
                         true
                     }
                     hangeul::InitialMieum => {
-                        let s = self.storage();
-                        let v = s.pick();
-                        match syllable.final() {
+                        let v = self.storage().pick();
+                        match syllable.final0() {
                             hangeul::FinalIeung => {
                                 //pringln!("print: {}", v);
-                                print!("{}", v);
+                                let _ = self.out.write_int(v);
                             },
                             hangeul::FinalHieut => {
                                 //pringln!("print: {} as char", v);
-                                print!("{}", std::char::from_u32(v as u32).unwrap());
+                                let _ = self.out.write_char(std::char::from_u32(v as u32).unwrap());
                             },
                             _ => { },
                         }
@@ -352,7 +353,7 @@ impl Interpreter {
                     }
                     hangeul::InitialBieup => {
                         let s = self.storage();
-                        let c = syllable.final();
+                        let c = syllable.final0();
                         let v = match c {
                             hangeul::FinalIeung => {
                                 let mut reader = std::io::stdin();
@@ -382,12 +383,12 @@ impl Interpreter {
                         true
                     }
                     hangeul::InitialSiot => {
-                        self.storage_index = syllable.final() as uint;
+                        self.storage_index = syllable.final0() as uint;
                         true
                     }
                     hangeul::InitialSsangSiot => {
                         let v = self.storage().pick();
-                        self.storage_index = syllable.final() as uint;
+                        self.storage_index = syllable.final0() as uint;
                         self.storage().put(v);
                         true
                     }
