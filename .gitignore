@@ -1,0 +1,6 @@
+.*.swp
+*.rlib
+*.dylib
+/doc
+/aheui
+/test

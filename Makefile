@@ -1,7 +1,8 @@
 
+HANGEUL_PATH='hangeul'
 RUSTC=rustc
-RLIBFLAGS='-L./hangeul'
-RFLAGS='-L.'
+RLIBFLAGS=-O -L./$(HANGEUL_PATH)
+RFLAGS=-O -L. -L./$(HANGEUL_PATH) -Z lto
 
 all: lib aheui
 	
@@ -31,8 +32,7 @@ clean: clean-module
 	rm aheui test *.rlib
 
 module:
-	cd hangeul && make
-	cp hangeul/*.rlib .
+	cd $(HANGEUL_PATH) && make
 
 clean-module:
-	cd hangeul && make clean
+	cd $(HANGEUL_PATH) && make clean

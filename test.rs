@@ -19,10 +19,10 @@ mod tests {
     #[test]
     pub fn test_source() {
         let s = Source::new("아희\n밯망희");
-        assert_eq!(s.get(0, 0).hangeul().char(), '아');
-        assert_eq!(s.get(0, 1).hangeul().char(), '희');
-        assert_eq!(s.get(1, 0).hangeul().char(), '밯');
-        assert_eq!(s.get(1, 2).hangeul().char(), '희');
+        assert_eq!(s.get(0, 0).hangeul().char().unwrap(), '아');
+        assert_eq!(s.get(0, 1).hangeul().char().unwrap(), '희');
+        assert_eq!(s.get(1, 0).hangeul().char().unwrap(), '밯');
+        assert_eq!(s.get(1, 2).hangeul().char().unwrap(), '희');
     }
 
     #[test]
