@@ -18,11 +18,11 @@ mod tests {
 
     #[test]
     pub fn test_source() {
-        let s = Source::new("아희\n밯망희");
-        assert_eq!(s.get(0, 0).hangeul().char().unwrap(), '아');
-        assert_eq!(s.get(0, 1).hangeul().char().unwrap(), '희');
-        assert_eq!(s.get(1, 0).hangeul().char().unwrap(), '밯');
-        assert_eq!(s.get(1, 2).hangeul().char().unwrap(), '희');
+        let s = Source::from_str("아희\n밯망희");
+        assert_eq!(s.get((0, 0)).hangeul().char().unwrap(), '아');
+        assert_eq!(s.get((0, 1)).hangeul().char().unwrap(), '희');
+        assert_eq!(s.get((1, 0)).hangeul().char().unwrap(), '밯');
+        assert_eq!(s.get((1, 2)).hangeul().char().unwrap(), '희');
     }
 
     #[test]
@@ -39,7 +39,7 @@ mod tests {
     #[test]
     pub fn test_it() {
         {
-            let mut it = Interpreter::new(Source::new(""));
+            let mut it = Interpreter::new(Source::from_str(""));
             assert_eq!(it.counter(), (0, 0));
             it.instruct(&Instruction::from_char('아'));
             assert_eq!(it.counter(), (0, 1));
@@ -47,7 +47,7 @@ mod tests {
             assert_eq!(it.counter(), (0, 1));
         }
         {
-            let source = Source::new("아희");
+            let source = Source::from_str("아희");
             let mut it = Interpreter::new(source);
             it.execute();
             assert_eq!(it.counter(), (0, 1));
@@ -56,7 +56,7 @@ mod tests {
 
     #[test]
     pub fn test_peak() {
-        let mut it = Interpreter::new(Source::new(""));
+        let mut it = Interpreter::new(Source::from_str(""));
         assert_eq!(it.counter(), (0, 0));
         it.instruct(&Instruction::from_char('아'));
         assert_eq!(it.counter(), (0, 1));
@@ -83,8 +83,23 @@ mod tests {
     }
 
     #[test]
+    pub fn test_wall() {
+        let mut it = Interpreter::new(Source::from_str("어아"));
+        assert_eq!(it.counter(), (0, 0));
+        assert!(!it.step());
+        assert_eq!(it.counter(), (0, -1));
+        assert!(!it.step());
+        assert_eq!(it.counter(), (0, 1));
+        assert!(!it.step());
+        assert_eq!(it.counter(), (0, 2));
+        assert!(!it.step());
+        assert_eq!(it.counter(), (0, 0));
+        assert!(!it.step());
+    }
+
+    #[test]
     pub fn test_initial() {
-        let mut it = Interpreter::new(Source::new(""));
+        let mut it = Interpreter::new(Source::from_str(""));
         it.instruct(&Instruction::from_char('바'));
         assert_eq!(it.storage().peek(), 0);
         it.instruct(&Instruction::from_char('반'));
@@ -123,7 +138,7 @@ mod tests {
 
     #[test]
     pub fn test_chieut() {
-        let mut it = Interpreter::new(Source::new(""));
+        let mut it = Interpreter::new(Source::from_str(""));
         assert_eq!(it.counter(), (0, 0));
         it.instruct(&Instruction::from_char('반'));
         assert_eq!(it.counter(), (0, 1));
@@ -141,7 +156,7 @@ mod tests {
 
     #[test]
     pub fn test_queue() {
-        let mut it = Interpreter::new(Source::new(""));
+        let mut it = Interpreter::new(Source::from_str(""));
         it.instruct(&Instruction::from_char('상'));
         it.instruct(&Instruction::from_char('반'));
         it.instruct(&Instruction::from_char('발'));
@@ -157,7 +172,7 @@ mod tests {
 
     #[test]
     pub fn test_helloworld() {
-        let source = Source::new("밤밣따빠밣밟따뿌\n빠맣파빨받밤뚜뭏\n돋밬탕빠맣붏두붇\n볻뫃박발뚷투뭏붖\n뫃도뫃희멓뭏뭏붘\n뫃봌토범더벌뿌뚜\n뽑뽀멓멓더벓뻐뚠\n뽀덩벐멓뻐덕더벅");
+        let source = Source::from_str("밤밣따빠밣밟따뿌\n빠맣파빨받밤뚜뭏\n돋밬탕빠맣붏두붇\n볻뫃박발뚷투뭏붖\n뫃도뫃희멓뭏뭏붘\n뫃봌토범더벌뿌뚜\n뽑뽀멓멓더벓뻐뚠\n뽀덩벐멓뻐덕더벅");
         let mut it = Interpreter::new(source);
         assert_eq!(it.counter(), (0, 0));
         assert_eq!(it.storage().len(), 0);
@@ -185,7 +200,7 @@ mod tests {
 
     #[test]
     pub fn test_99dan() {
-        let source = Source::new("삼반반타반빠빠빠빠빠빠뿌\n우어번벋벋범벌벖벍벓벒석\n");
+        let source = Source::from_str("삼반반타반빠빠빠빠빠빠뿌\n우어번벋벋범벌벖벍벓벒석\n");
         let mut it = Interpreter::new(source);
         assert_eq!(it.counter(), (0, 0));
         assert_eq!(it.storage().len(), 0);

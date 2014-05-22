@@ -16,7 +16,7 @@ pub fn main() {
     let path = Path::new(path_str.as_slice());
 
     let mut file = std::io::File::open(&path).ok().expect("error: no such file");
-    let source = aheui::Source::new(file.read_to_str().ok().expect("error: io error"));
+    let source = aheui::Source::from_str(file.read_to_str().ok().expect("error: io error"));
     let mut interpreter = aheui::Interpreter::new(source);
     interpreter.execute();
 }

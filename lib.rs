@@ -13,22 +13,136 @@ macro_rules! printerr(
     );
 )
 
-pub enum Instruction {
-    Hangeul(hangeul::ConcreteSyllable),
-    Character(char),
-    Wall(InterpreterDirection),
+pub enum InterpreterDirection {
+    Down,
+    Up,
+    Right,
+    Left,
 }
 
-impl Instruction {
-    pub fn from_char(c: char) -> Instruction {
+pub enum InstructionData {
+    Hangeul(hangeul::ConcreteSyllable),
+    Character(char),
+    Virtual,
+}
+
+impl InstructionData {
+    pub fn from_char(c: char) -> InstructionData {
         match hangeul::ConcreteSyllable::from_char(c) {
             Some(syllable) => Hangeul(syllable),
             None => Character(c),
         }
     }
+}
+
+pub enum InstructionMovement {
+    RegularMovement(InterpreterDirection, int, int),
+    AllowHorizontalMovement,
+    AllowVerticalMovement,
+    DisallowMovement,
+    KeepCurrentMovement,
+    WallMovement(InterpreterDirection, int),
+}
+
+pub enum InstructionOperation {
+    NoOperation,
+    PushConstantOperation(int),
+    PushDuplicationOperation,
+    PushIntegerInputOperation,
+    PushCharInputOperation,
+    BinaryOperation(fn(int, int) -> int),
+    PopOperation,
+    PrintIntegerOperation,
+    PrintCharOperation,
+    SwapOperation,
+    ChangeStorageOperation(uint),
+    MoveToStorageOperation(uint),
+    CompareOperation,
+    BranchOperation,
+    HaltOperation,
+}
+
+fn operation_digeut(v1: int, v2: int) -> int { v2 + v1 }
+fn operation_ssang_digeut(v1: int, v2: int) -> int { v2 * v1 }
+fn operation_tieut(v1: int, v2: int) -> int { v2 - v1 }
+fn operation_nieun(v1: int, v2: int) -> int { v2 / v1 }
+fn operation_rieul(v1: int, v2: int) -> int { v2 % v1 }
+
+pub struct Instruction {
+    data: InstructionData,
+    operation: InstructionOperation,
+    move: InstructionMovement,
+}
+static right_wall_instruction: Instruction
+    = Instruction { data: Virtual, operation: NoOperation, move: WallMovement(Right, 2) };
+static down_wall_instruction: Instruction
+    = Instruction { data: Virtual, operation: NoOperation, move: WallMovement(Down, 2) };
+
+impl Instruction {
+    pub fn from_data(i: InstructionData) -> Instruction {
+        let operation = match i {
+            Hangeul(c) => match c.initial() {
+                hangeul::InitialBieup => match c.final0() {
+                    hangeul::FinalIeung => PushIntegerInputOperation,
+                    hangeul::FinalHieut => PushCharInputOperation,
+                    final => PushConstantOperation(final_draw_counts[final as uint]),
+                },
+                hangeul::InitialSsangBieup => PushDuplicationOperation,
+                hangeul::InitialPieup => SwapOperation,
+                hangeul::InitialDigeut => BinaryOperation(operation_digeut),
+                hangeul::InitialSsangDigeut => BinaryOperation(operation_ssang_digeut),
+                hangeul::InitialTieut => BinaryOperation(operation_tieut),
+                hangeul::InitialNieun => BinaryOperation(operation_nieun),
+                hangeul::InitialRieul => BinaryOperation(operation_rieul),
+                hangeul::InitialIeung => { NoOperation },
+                hangeul::InitialMieum => match c.final0() {
+                    hangeul::FinalIeung => PrintIntegerOperation,
+                    hangeul::FinalHieut => PrintCharOperation,
+                    _ => PopOperation,
+                },
+                hangeul::InitialSiot => ChangeStorageOperation(c.final0() as uint),
+                hangeul::InitialSsangSiot => MoveToStorageOperation(c.final0() as uint),
+                hangeul::InitialJieut => CompareOperation,
+                hangeul::InitialChieut => BranchOperation,
+                hangeul::InitialHieut => HaltOperation,
+                _ => NoOperation,
+            },
+            _ => NoOperation,
+        };
+        let move = match i {
+            Hangeul(c) => match c.peak() {
+                hangeul::A => { RegularMovement(Right, 0, 1) }
+                hangeul::Ya => { RegularMovement(Right, 0, 2) }
+                hangeul::Eo => { RegularMovement(Left, 0, -1) }
+                hangeul::Yeo => { RegularMovement(Left, 0, -2) }
+                hangeul::O => { RegularMovement(Up, -1, 0) }
+                hangeul::Yo => { RegularMovement(Up, -2, 0) }
+                hangeul::U => { RegularMovement(Down, 1, 0) }
+                hangeul::Yu => { RegularMovement(Down, 2, 0) }
+                hangeul::Eu => { AllowHorizontalMovement }
+                hangeul::I => { AllowVerticalMovement }
+                hangeul::Ui => { DisallowMovement }
+                _ => { KeepCurrentMovement }
+            },
+            _ => KeepCurrentMovement,
+        };
+        Instruction { data: i, operation: operation, move: move }
+    }
+
+    pub fn from_wall_data(direction: InterpreterDirection, value: int) -> Instruction {
+        Instruction {
+            data: Virtual,
+            operation: NoOperation,
+            move: WallMovement(direction, value)
+        }
+    }
+
+    pub fn from_char(c: char) -> Instruction {
+        return Instruction::from_data(InstructionData::from_char(c));
+    }
 
     pub fn hangeul(&self) -> hangeul::ConcreteSyllable {
-        match *self {
+        match self.data {
             Hangeul(syllable) => syllable,
             _ => { assert!(false); fail!("") }
         }
@@ -36,77 +150,81 @@ impl Instruction {
 }
 
 pub struct Source {
-    instructions: Vec<Instruction>,
-    tails: Vec<uint>,
+    map: Vec<Vec<Instruction>>,
 }
 
 impl Source {
-    pub fn new(s: &str) -> Source {
-        let vec = s.as_slice().chars().map(
-            |c| match hangeul::ConcreteSyllable::from_char(c) {
-                Some(syllable) => Hangeul(syllable),
-                None => Character(c),
-            }
-        ).collect();
-        let mut obj = Source { instructions: vec, tails: Vec::new() };
-        obj._parse();
+    pub fn from_str(s: &str) -> Source {
+        let mut obj = Source {
+            map: Vec::new(),
+        };
+        obj._parse(s);
+
         obj
     }
 
-    pub fn _parse(&mut self) {
-        if self.instructions.len() == 0 {
-            self.tails.push(0);
-            return
-        }
-        for (i, &inst) in self.instructions.iter().enumerate() {
-            match inst {
-                Character('\n') => {
-                    self.tails.push(i + 1);
-                }
-                _ => { }
-            }
-        }
-        if self.tails.len() == 0 || *self.tails.last().unwrap() != self.instructions.len() {
-            self.tails.push(self.instructions.len());
-        }
-    }
+    pub fn _parse(&mut self, s: &str) {
+        self.map.push(Vec::new());
 
-    pub fn get(&self, row: int, col: int) -> Instruction {
-        match (row, col) {
-            (row, _) if row < 0 => Wall(Up),
-            (_, col) if col < 0 => Wall(Left),
-            (row, _) if row >= self.tails.len() as int => Wall(Down),
-            _ => {
-                let pos: uint = col as uint + (if row == 0 {
-                    0
-                } else {
-                    *self.tails.as_slice().get(row as uint - 1).unwrap()
+        for c in s.as_slice().chars() {
+            if c == '\n' {
+                self.map.push(Vec::new());
+            } else {
+                let inst = Instruction::from_data(match hangeul::ConcreteSyllable::from_char(c) {
+                    Some(syllable) => Hangeul(syllable),
+                    None => Character(c),
                 });
-                //pringln!("pos: {} / col: {} // row: {} / len: {}", pos, col, row, self.instructions.len());
-                if col as uint >= self.tails.as_slice()[row as uint] {
-                    Wall(Right)
+                self.map.mut_last().unwrap().push(inst);
+            }
+        }
+
+        let mut max_col_len = 0;
+        let row_len = self.map.len();
+        for row in self.map.mut_iter() {
+            let len = row.len();
+            max_col_len = std::cmp::max(max_col_len, len);
+            row.insert(0, Instruction::from_wall_data(Left, len as int + 1));
+            row.insert(0, Instruction::from_wall_data(Left, len as int + 1));
+        }
+
+        {
+            let mut h1 = Vec::new();
+            let mut h2 = Vec::new();
+            let mut t1 = Vec::new();
+            let mut t2 = Vec::new();
+            for _ in range(0, max_col_len + 2) {
+                h1.push(Instruction::from_wall_data(Up, row_len as int + 1));
+                h2.push(Instruction::from_wall_data(Up, row_len as int + 1));
+                t1.push(down_wall_instruction);
+                t2.push(down_wall_instruction);
+            }
+            self.map.insert(0, h1);
+            self.map.insert(0, h2);
+            self.map.push(t1);
+            self.map.push(t2);
+        }
+    }
+
+    fn _get(&self, pos: (int, int)) -> Instruction {
+        match pos {
+            (ridx, cidx) => {
+                let row = self.map.get(ridx as uint);
+                let inst = if cidx >= row.len() as int {
+                    right_wall_instruction
                 } else {
-                    *self.instructions.as_slice().get(pos).unwrap()
-                }
+                    *row.get(cidx as uint)
+                };
+                // println!("{},{} inst: {:?}", ridx, cidx, inst);
+                inst
             }
         }
     }
-}
 
-#[test]
-pub fn test_source() {
-    let mut s = Source::new("아희\n밯망희");
-    assert_eq!(s.get(0, 0).hangeul().char(), '아');
-    assert_eq!(s.get(0, 1).hangeul().char(), '희');
-    assert_eq!(s.get(1, 0).hangeul().char(), '밯');
-    assert_eq!(s.get(1, 2).hangeul().char(), '희');
-}
-
-pub enum InterpreterDirection {
-    Down,
-    Up,
-    Right,
-    Left,
+    pub fn get(&self, pos: (int, int)) -> Instruction {
+        match pos {
+            (ridx, cidx) => self._get((ridx + 2, cidx + 2))
+        }
+    }
 }
 
 pub trait Storage {
@@ -267,11 +385,12 @@ pub struct Interpreter {
     storages: Vec<TempStorage>, // must be array - fixed size
     storage_index: uint,
     counter: (int, int),
+    last_move: (int, int),
     direction: InterpreterDirection,
     out: std::io::LineBufferedWriter<std::io::stdio::StdWriter>,
 }
 
-pub static final_draw_counts: [uint, ..28] = [0, 2, 4, 4, 2, 5, 5, 3, 5, 7, 9, 9, 7, 9, 9, 8, 4, 4, 6, 2, 4, 0, 3, 4, 3, 4, 4, 0];
+pub static final_draw_counts: [int, ..28] = [0, 2, 4, 4, 2, 5, 5, 3, 5, 7, 9, 9, 7, 9, 9, 8, 4, 4, 6, 2, 4, -1, 3, 4, 3, 4, 4, -1];
 
 impl Interpreter {
     pub fn new(source: Source) -> Interpreter {
@@ -279,7 +398,8 @@ impl Interpreter {
             source: source,
             storages: Vec::new(),
             storage_index: 0,
-            counter: (0, 0),
+            counter: (2, 2),
+            last_move: (1, 0),
             direction: Down,
             out: std::io::stdio::stdout(),
         };
@@ -301,7 +421,9 @@ impl Interpreter {
     }
 
     pub fn counter(&self) -> (int, int) {
-        self.counter
+        match self.counter {
+            (row, col) => (row - 2, col - 2)
+        }
     }
 
     pub fn storage<'a>(&'a mut self) -> &'a mut Storage {
@@ -310,206 +432,162 @@ impl Interpreter {
     }
 
     pub fn instruct(&mut self, instruction: &Instruction) -> bool {
-        let mut direction: InterpreterDirection = self.direction;
-        let mut move: int = 1;
-        match *instruction {
-            Hangeul(syllable) => {
-                //pringln!("instruction: {:?} {:?} {:?}", syllable.initial(), syllable.peak(), syllable.final0());
-                let initial = syllable.initial();
-                let _ = match initial {
-                    hangeul::InitialIeung => {
-                        false
-                    }
-                    hangeul::InitialDigeut | hangeul::InitialSsangDigeut | hangeul::InitialTieut |
-                    hangeul::InitialNieun | hangeul::InitialRieul => {
-                        let s = self.storage();
-                        let v1 = s.pick();
-                        let v2 = s.pick();
-                        let r = match initial {
-                            hangeul::InitialDigeut => v2 + v1,
-                            hangeul::InitialSsangDigeut => v2 * v1,
-                            hangeul::InitialTieut => v2 - v1,
-                            hangeul::InitialNieun => v2 / v1,
-                            hangeul::InitialRieul => v2 % v1,
-                            _ => { assert!(false); 0 } // impossible
-                        };
-                        s.put(r);
-                        true
-                    }
-                    hangeul::InitialMieum => {
-                        let v = self.storage().pick();
-                        match syllable.final0() {
-                            hangeul::FinalIeung => {
-                                //pringln!("print: {}", v);
-                                let _ = self.out.write_int(v);
-                            },
-                            hangeul::FinalHieut => {
-                                //pringln!("print: {} as char", v);
-                                let _ = self.out.write_char(std::char::from_u32(v as u32).unwrap());
-                            },
-                            _ => { },
-                        }
-                        true
-                    }
-                    hangeul::InitialBieup => {
-                        let s = self.storage();
-                        let c = syllable.final0();
-                        let v = match c {
-                            hangeul::FinalIeung => {
-                                let mut reader = std::io::stdin();
-                                let line = reader.read_line().unwrap();
-                                let num: int = from_str(line).unwrap();
-                                num
-                            },
-                            hangeul::FinalHieut => {
-                                let mut reader = std::io::stdin();
-                                let chr = reader.read_char().unwrap();
-                                chr as int
-                            },
-                            _ => { final_draw_counts[c as uint] as int },
-                        };
-                        s.put(v);
-                        true
-                    }
-                    hangeul::InitialSsangBieup => {
-                        let s = self.storage();
-                        let v = s.peek();
-                        s.put(v);
-                        true
-                    }
-                    hangeul::InitialPieup => {
-                        let s = self.storage();
-                        s.swap();
-                        true
-                    }
-                    hangeul::InitialSiot => {
-                        self.storage_index = syllable.final0() as uint;
-                        true
-                    }
-                    hangeul::InitialSsangSiot => {
-                        let v = self.storage().pick();
-                        self.storage_index = syllable.final0() as uint;
-                        self.storage().put(v);
-                        true
-                    }
-                    hangeul::InitialJieut => {
-                        let s = self.storage();
-                        let v1 = s.pick();
-                        let v2 = s.pick();
-                        if v2 >= v1 {
-                            s.put(1)
-                        } else {
-                            s.put(0)
-                        }
-                        true
-                    }
-                    _ => {
-                        //pringln!("unhandled consonant: {:?}", initial);
-                        false
-                    }
-                };
-                if initial == hangeul::InitialHieut {
-                    //pringln!("halt! {:?}", syllable);
-                    return true;
-                }
-
-                match syllable.peak() {
-                    hangeul::A => { direction = Right; }
-                    hangeul::Ya => { direction = Right; move = 2; }
-                    hangeul::Eo => { direction = Left; }
-                    hangeul::Yeo => { direction = Left; move = 2; }
-                    hangeul::O => { direction = Up; }
-                    hangeul::Yo => { direction = Up; move = 2; }
-                    hangeul::U => { direction = Down; }
-                    hangeul::Yu => { direction = Down; move = 2; }
-                    hangeul::Eu => {
-                        //println!("direction: {:?}", self.direction);
-                        direction = match self.direction {
-                            Right | Left => self.direction,
-                            Up => Down,
-                            Down => Up,
-                        };
-                    }
-                    hangeul::I => {
-                        direction = match self.direction {
-                            Right => Left,
-                            Left => Right,
-                            Up | Down => self.direction,
-                        };
-                    }
-                    hangeul::Ui => {
-                        direction = match self.direction {
-                            Right => Left,
-                            Left => Right,
-                            Up => Down,
-                            Down => Up,
-                        };
-                    }
-                    _ => {
-                        //pringln!("unhandled peak: {:?}", syllable.peak());
-                    }
-                }
-                if syllable.initial() == hangeul::InitialChieut && self.storage().pick() == 0 {
-                    direction = match direction {
+        match instruction.operation {
+            PushConstantOperation(v) => {
+                let s = self.storage();
+                s.put(v);
+            }
+            BinaryOperation(op) => {
+                let s = self.storage();
+                let v1 = s.pick();
+                let v2 = s.pick();
+                let r = op(v1, v2);
+                s.put(r);
+            }
+            PrintIntegerOperation => {
+                let v = self.storage().pick();
+                let _ = self.out.write_int(v);
+            }
+            PrintCharOperation => {
+                let v = self.storage().pick();
+                let c = std::char::from_u32(v as u32);
+                let _ = self.out.write_char(c.unwrap());
+            }
+            PopOperation => {
+                let _ = self.storage().pick();
+            }
+            PushIntegerInputOperation => {
+                let mut reader = std::io::stdin();
+                let line = reader.read_line().unwrap();
+                let num: int = from_str(line).unwrap();
+                self.storage().put(num);
+            }
+            PushCharInputOperation => {
+                let mut reader = std::io::stdin();
+                let chr = reader.read_char().unwrap();
+                self.storage().put(chr as int);
+            }
+            PushDuplicationOperation => {
+                let s = self.storage();
+                let v = s.peek();
+                s.put(v);
+            }
+            SwapOperation => {
+                let s = self.storage();
+                s.swap();
+            }
+            MoveToStorageOperation(index) => {
+                let v = self.storage().pick();
+                self.storage_index = index;
+                self.storage().put(v);
+            }
+            ChangeStorageOperation(index) => {
+                self.storage_index = index;
+            }
+            CompareOperation => {
+                let s = self.storage();
+                let v1 = s.pick();
+                let v2 = s.pick();
+                s.put(if v2 >= v1 { 1 } else { 0 });
+            }
+            HaltOperation => {
+                //pringln!("halt! {:?}", syllable);
+                return true;
+            }
+            NoOperation | BranchOperation => {  }
+        };
+        let mut direction_move = match instruction.move {
+            RegularMovement(new_direction, row, col) => {
+                (new_direction, (row, col))
+            },
+            AllowHorizontalMovement => match self.direction {
+                Right | Left => (self.direction, self.last_move),
+                Up => (Down, (1, 0)),
+                Down => (Up, (-1, 0)),
+            },
+            AllowVerticalMovement =>  match self.direction {
+                Up | Down => (self.direction, self.last_move),
+                Right => (Left, (0, -1)),
+                Left => (Right, (1, 0)),
+            },
+            DisallowMovement => {
+                (
+                    match self.direction {
                         Right => Left,
                         Left => Right,
                         Up => Down,
                         Down => Up,
+                    },
+                    match self.last_move {
+                        (row, col) => (-row, -col)
                     }
-                }
-            }
-            Wall(direction) => match (self.direction, direction) {
-                (Up, Up) => {
-                    move = 0;
-                    self.counter = match self.counter {
-                        (_, col) => (self.source.tails.len() as int, col),
-                    }
-                }
-                (Down, Down) => {
-                    move = 0;
-                    self.counter = match self.counter {
-                        (_, col) => (0, col),
-                    }
-                }
-                (Right, Right) => {
-                    move = 0;
-                    self.counter = match self.counter {
-                        (row, _) => (row, 0),
-                    }
-                }
-                (Left, Left) => {
-                    move = 0;
-                    self.counter = match self.counter {
-                        (row, _) => {
-                            let tails = &self.source.tails;
-                            let col = *tails.get(row as uint) -
-                                if row == 0 { 0 } else { *tails.get(row as uint - 1) };
-                            (row, col as int)
+                )
+            },
+            KeepCurrentMovement => {
+                (self.direction, self.last_move)
+            },
+            WallMovement(direction, value) => {
+                match (self.direction, direction) {
+                    (Up, Up) => {
+                        self.counter = match self.counter {
+                            (_, col) => (value + 1, col),
                         }
                     }
+                    (Down, Down) => {
+                        self.counter = match self.counter {
+                            (_, col) => (value - 1, col),
+                        }
+                    }
+                    (Right, Right) => {
+                        self.counter = match self.counter {
+                            (row, _) => (row, value - 1),
+                        }
+                    }
+                    (Left, Left) => {
+                        self.counter = match self.counter {
+                            (row, _) => (row, value + 1),
+                        }
+                    }
+                    _ => { }
                 }
-                _ => { }
-            },
-            _ => { }
-        };
-        let counter_diff = match direction {
-            Right => (0, move),
-            Left => (0, -move),
-            Down => (move, 0),
-            Up => (-move, 0),
-        };
-        self.counter = match self.counter {
-            (row, col) => match counter_diff {
-                (row_diff, col_diff) => (row + row_diff, col + col_diff)
+                (self.direction, self.last_move)
             }
         };
-        self.direction = direction;
+
+        match instruction.operation {
+            BranchOperation => {
+                if self.storage().pick() == 0 {
+                    direction_move = match direction_move {
+                        (direction, (row, col)) => (
+                            match direction {
+                                Right => Left,
+                                Left => Right,
+                                Up => Down,
+                                Down => Up,
+                            },
+                            (-row, -col)
+                        )
+                    }
+                }
+            }
+            _ => { }
+        }
+
+        match direction_move {
+            (direction, (row_diff, col_diff)) => {
+                self.direction = direction;
+                self.counter = match self.counter {
+                    (row, col) => (row + row_diff, col + col_diff)
+                };
+                self.last_move = (row_diff, col_diff);
+            }
+        };
         false
     }
 
     pub fn step(&mut self) -> bool {
         let syllable = match self.counter {
-            (row, col) => self.source.get(row, col)
+            (row, col) => self.source._get((row, col))
         };
         self.instruct(&syllable)
     }
@@ -524,9 +602,9 @@ impl Interpreter {
 pub fn test_interpreter() {
     let mut interpreter = Interpreter::new(Source::new(""));
     assert_eq!(interpreter.counter, (0, 0));
-    interpreter.instruct(&Instruction::from_char('아'));
+    interpreter.instruct(&InstructionData::from_char('아'));
     assert_eq!(interpreter.counter, (0, 1));
-    interpreter.instruct(&Instruction::from_char('희'));
+    interpreter.instruct(&InstructionData::from_char('희'));
     assert_eq!(interpreter.counter, (0, 1));
     {
         let source = Source::new("아희");
