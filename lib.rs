@@ -2,7 +2,6 @@
 #![crate_type="lib"]
 #![license="BSD simplified"]
 #![feature(macro_rules)]
-#![macro_escape]
 
 extern crate hangeul;
 
@@ -550,7 +549,7 @@ impl Interpreter {
             PushIntegerInputOperation => {
                 let mut reader = std::io::stdin();
                 let line = reader.read_line().unwrap();
-                let num: int = from_str(line).unwrap();
+                let num: int = from_str(line.as_slice()).unwrap();
                 self.storage().put(num);
             }
             PushCharInputOperation => {

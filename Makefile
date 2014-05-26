@@ -18,9 +18,8 @@ test-test: lib
 	./test
 
 test-snippets: aheui
-	$(RUSTC) $(RFLAGS) aheui.rs
-	./aheui snippets/hello-world/hello-world.puzzlet.aheui
-	./aheui snippets/hello-world/hello.puzzlet.aheui
+	if [ -e snippets ]; then cd snippets && git pull; else git clone https://github.com/aheui/snippets; fi
+	cd snippets && AHEUI=../aheui bash test.sh
 
 test: test-test test-snippets
 	
