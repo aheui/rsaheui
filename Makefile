@@ -13,14 +13,17 @@ lib: module
 aheui: lib
 	$(RUSTC) $(RFLAGS) aheui.rs
 
-test: aheui
+test-test: lib
 	$(RUSTC) $(RFLAGS) --test test.rs
 	./test
-	rm aheui
 
+test-snippets: aheui
 	$(RUSTC) $(RFLAGS) aheui.rs
 	./aheui snippets/hello-world/hello-world.puzzlet.aheui
 	./aheui snippets/hello-world/hello.puzzlet.aheui
+
+test: test-test test-snippets
+	
 
 install: aheui
 	cp ./aheui /usr/local/bin/rsaheui

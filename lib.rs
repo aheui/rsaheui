@@ -230,14 +230,19 @@ impl Source {
 pub trait Storage {
     fn len(&self) -> uint;
     fn put(&mut self, data: int);
-    fn pick(&mut self) -> int;
     fn rput(&mut self, data: int);
-    fn peek(&self) -> int;
-    fn swap(&mut self) {
-        let v1 = self.pick();
-        let v2 = self.pick();
-        self.rput(v1);
-        self.rput(v2);
+    fn pick(&mut self) -> Option<int>;
+    fn peek(&self) -> Option<int>;
+    fn swap(&mut self) -> bool {
+        if self.len() >= 2 {
+            let v1 = self.pick().unwrap();
+            let v2 = self.pick().unwrap();
+            self.rput(v1);
+            self.rput(v2);
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -264,27 +269,33 @@ impl Storage for TempStorage {
 
     fn rput(&mut self, data: int) {
         if self.is_queue {
-            self.vec.insert(0, data);
+            self.vec.unshift(data);
         } else {
             self.vec.push(data);
         }
     }
 
-    fn pick(&mut self) -> int {
+    fn pick(&mut self) -> Option<int> {
         if self.is_queue {
-            self.vec.remove(0).unwrap()
+            self.vec.shift()
         } else {
-            self.vec.pop().unwrap()
+            self.vec.pop()
         }
     }
 
-    fn peek(&self) -> int {
-        let v = if self.is_queue {
-            self.vec.get(0)
+    fn peek(&self) -> Option<int> {
+        if self.is_queue {
+            if !self.vec.is_empty() {
+                Some(*self.vec.get(0))
+            } else {
+                None
+            }
         } else {
-            self.vec.last().unwrap()
-        };
-        *v
+            match self.vec.last() {
+                Some(v) => Some(*v),
+                None => None,
+            }
+        }
     }
 }
 
@@ -432,6 +443,7 @@ impl Interpreter {
     }
 
     pub fn instruct(&mut self, instruction: &Instruction) -> bool {
+        let mut branch: bool = false;
         match instruction.operation {
             PushConstantOperation(v) => {
                 let s = self.storage();
@@ -439,23 +451,102 @@ impl Interpreter {
             }
             BinaryOperation(op) => {
                 let s = self.storage();
-                let v1 = s.pick();
-                let v2 = s.pick();
-                let r = op(v1, v2);
-                s.put(r);
+                if s.len() >= 2 {
+                    let v1 = s.pick().unwrap();
+                    let v2 = s.pick().unwrap();
+                    let r = op(v1, v2);
+                    s.put(r);
+                } else {
+                    branch = true;
+                }
             }
             PrintIntegerOperation => {
                 let v = self.storage().pick();
-                let _ = self.out.write_int(v);
+                match v {
+                    Some(v) => {
+                        let _ = self.out.write_int(v);
+                    }
+                    None => {
+                        branch = true;
+                    }
+                }
             }
             PrintCharOperation => {
                 let v = self.storage().pick();
-                let c = std::char::from_u32(v as u32);
-                let _ = self.out.write_char(c.unwrap());
+                match v {
+                    Some(v) => {
+                        let c = std::char::from_u32(v as u32);
+                        let _ = self.out.write_char(c.unwrap());
+                    }
+                    None => {
+                        branch = true;
+                    }
+                }
             }
             PopOperation => {
-                let _ = self.storage().pick();
+                let v = self.storage().pick();
+                match v {
+                    None => {
+                        branch = true;
+                    }
+                    _ => { }
+                }
             }
+            PushDuplicationOperation => {
+                let s = self.storage();
+                let v = s.peek();
+                match v {
+                    Some(v) => {
+                        s.put(v);
+                    }
+                    None => {
+                        branch = true;
+                    }
+                }
+            }
+            SwapOperation => {
+                let s = self.storage();
+                if !s.swap() {
+                    branch = true;
+                }
+            }
+            MoveToStorageOperation(index) => {
+                let v = self.storage().pick();
+                match v {
+                    Some(v) => {
+                        self.storage_index = index;
+                        self.storage().put(v);
+                    }
+                    None => {
+                        branch = true;
+                    }
+                }
+            }
+            ChangeStorageOperation(index) => {
+                self.storage_index = index;
+            }
+            CompareOperation => {
+                let s = self.storage();
+                if s.len() >= 2 {
+                    let v1 = s.pick().unwrap();
+                    let v2 = s.pick().unwrap();
+                    s.put(if v2 >= v1 { 1 } else { 0 });
+                } else {
+                    branch = true;
+                }
+            }
+            BranchOperation => {
+                match self.storage().pick() {
+                    Some(v) if v == 0 => {
+                        branch = true;
+                    }
+                    Some(_) => { }
+                    None => {
+                        branch = true;
+                    }
+                }
+            }
+            NoOperation => { }
             PushIntegerInputOperation => {
                 let mut reader = std::io::stdin();
                 let line = reader.read_line().unwrap();
@@ -467,34 +558,10 @@ impl Interpreter {
                 let chr = reader.read_char().unwrap();
                 self.storage().put(chr as int);
             }
-            PushDuplicationOperation => {
-                let s = self.storage();
-                let v = s.peek();
-                s.put(v);
-            }
-            SwapOperation => {
-                let s = self.storage();
-                s.swap();
-            }
-            MoveToStorageOperation(index) => {
-                let v = self.storage().pick();
-                self.storage_index = index;
-                self.storage().put(v);
-            }
-            ChangeStorageOperation(index) => {
-                self.storage_index = index;
-            }
-            CompareOperation => {
-                let s = self.storage();
-                let v1 = s.pick();
-                let v2 = s.pick();
-                s.put(if v2 >= v1 { 1 } else { 0 });
-            }
             HaltOperation => {
                 //pringln!("halt! {:?}", syllable);
                 return true;
             }
-            NoOperation | BranchOperation => {  }
         };
         let mut direction_move = match instruction.move {
             RegularMovement(new_direction, row, col) => {
@@ -554,23 +621,18 @@ impl Interpreter {
             }
         };
 
-        match instruction.operation {
-            BranchOperation => {
-                if self.storage().pick() == 0 {
-                    direction_move = match direction_move {
-                        (direction, (row, col)) => (
-                            match direction {
-                                Right => Left,
-                                Left => Right,
-                                Up => Down,
-                                Down => Up,
-                            },
-                            (-row, -col)
-                        )
-                    }
-                }
+        if branch {
+            direction_move = match direction_move {
+                (direction, (row, col)) => (
+                    match direction {
+                        Right => Left,
+                        Left => Right,
+                        Up => Down,
+                        Down => Up,
+                    },
+                    (-row, -col)
+                )
             }
-            _ => { }
         }
 
         match direction_move {
